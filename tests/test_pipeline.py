@@ -59,6 +59,23 @@ def test_readme_matches_shipped_tier_cutoffs():
     assert TIE_BREAK_TEXT in readme
 
 
+def test_unreadable_phone_scores_higher_than_blank_phone_end_to_end():
+    from leadflow.config import load_config
+    from tests.conftest import raw_frame
+
+    lead = {"company_name": "Acme", "website": "acme.example", "contact_last_name": "Doe", "country": "US",
+            "industry": "SaaS", "employee_count": "120", "contact_title": "VP Sales"}
+    raw = raw_frame([
+        {**lead, "contact_first_name": "Blank", "email": "blank@acme.example", "phone": ""},
+        {**lead, "contact_first_name": "Junk", "email": "junk@acme.example", "phone": "+1-525-8369"},
+    ])
+    ranked = process(raw, load_config(ROOT / "icp.yaml"), run_date=RUN_DATE).ranked.set_index("contact_first_name")
+    assert "No phone number" in ranked.loc["Blank", "score_reasons"]
+    assert "No phone number" not in ranked.loc["Junk", "score_reasons"]
+    assert ranked.loc["Junk", "score"] - ranked.loc["Blank", "score"] == 5
+    assert ranked.loc["Junk", "missing_fields"].endswith("Phone (unreadable)")
+
+
 def test_run_writes_all_outputs(tmp_path, messy_leads):
     csv_path = tmp_path / "leads.csv"
     messy_leads.to_csv(csv_path, index=False)

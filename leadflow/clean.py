@@ -343,9 +343,29 @@ def clean_leads(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         for site, e in zip(website_domain, out["email"], strict=True)
     ]
     out = add_derived_columns(out)
+    out["unreadable_fields"] = _unreadable_fields(raw, out)
 
     quality = _quality_report(raw, out, website_domain)
-    return out[CLEAN_COLUMNS].reset_index(drop=True), quality
+    return out[[*CLEAN_COLUMNS, "unreadable_fields"]].reset_index(drop=True), quality
+
+
+# Fields whose raw value can be present but unreadable, and that the same-named clean column holds.
+# (Email is excluded: an invalid email is kept as text and handled by email_valid.)
+_UNREADABLE_CANDIDATES = [c for c in INPUT_COLUMNS if c not in ("website", "email")]
+
+
+def _unreadable_fields(raw: pd.DataFrame, clean: pd.DataFrame) -> list[str]:
+    """Per row, '; '-joined fields that had a value in the file which couldn't be read."""
+    flags = {
+        field: ~raw[field].map(is_missing) & clean[field].map(is_missing) for field in _UNREADABLE_CANDIDATES
+    }
+    return ["; ".join(f for f in _UNREADABLE_CANDIDATES if flags[f].iloc[i]) for i in range(len(raw))]
+
+
+def unreadable_set(row: dict) -> set[str]:
+    """The set of unreadable field names recorded on a lead (empty if none or not tracked)."""
+    value = row.get("unreadable_fields")
+    return set() if is_missing(value) else {f for f in str(value).split("; ") if f}
 
 
 def add_derived_columns(df: pd.DataFrame) -> pd.DataFrame:

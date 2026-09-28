@@ -101,7 +101,7 @@ Leads are sorted by score (highest first). Ties are broken by profile completene
 | **Score** | 0–100. How well the lead matches the client's ideal customer. |
 | **Why this score** | Every rule the lead matched and the points it earned or lost. |
 | **Needs enrichment?** | "Yes" means some fields the scoring uses are blank, and filling them could move the lead **up a tier**. A blank earns no points, so a low score here may mean "unknown", not "poor fit". Research these before writing them off. |
-| **Missing (scored) fields** | Which of those fields are blank, e.g. `Industry; Employees`. |
+| **Missing (scored) fields** | Which of those fields are blank, e.g. `Industry; Employees`. `(unreadable)`, as in `Phone (unreadable)`, means your file had something there that couldn't be read, like a cut-off number or "TBD". That counts as *unknown*: it isn't penalised the way a blank "No phone number" is. |
 | **Company name source** | `original` = from your file. `same domain` = copied from another lead with the same website or email domain. `inferred` = worked out from the website or email domain (e.g. `orbitline-health.com` → "Orbitline Health"), so double-check it. |
 | **Profile complete %** | How many of the useful fields are filled in. |
 | **Original row(s)** | Which row(s) of your original spreadsheet this lead came from. More than one means duplicates were merged. |

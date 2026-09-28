@@ -38,6 +38,10 @@ list plus a short summary report.
 - Phones: the national number must match the length range for its dial code
   (`PHONE_NATIONAL_DIGITS` in `reference.py`); otherwise None, counted as *unreadable* not
   *standardized*. Unknown country + no code: keep digits if 8–15 long.
+- Unreadable ≠ blank: `clean_leads` records fields whose raw value was present but unparseable in
+  the internal `unreadable_fields` column (cleared on merge if a duplicate supplies a value).
+  Rules on an unreadable field score 0 either way (no "No phone number" penalty), and it's listed
+  as e.g. `Phone (unreadable)` in `missing_fields`.
 - `missing_fields` = blank fields tested by `icp.yaml` rules (friendly labels, rule order).
   `needs_enrichment` = the best-case score (blanks assumed favourable, penalties on blanks lifted)
   lands in a higher tier. Blank data must never be presented as poor fit.

@@ -191,9 +191,21 @@ def test_clean_leads_derives_domain_from_business_email_only():
     assert pd.isna(cleaned.loc[1, "domain"])
 
 
+def test_clean_leads_records_unreadable_fields():
+    person = {"company_name": "A", "contact_first_name": "a", "contact_last_name": "b", "email": "a@a.example",
+              "country": "US"}
+    raw = raw_frame([
+        {**person, "phone": "123", "employee_count": "unknown"},  # filled in, but unreadable
+        {**person, "phone": "", "employee_count": ""},             # genuinely blank
+        {**person, "phone": "(415) 555-0100", "employee_count": "50"},
+    ])
+    cleaned, _ = clean.clean_leads(raw)
+    assert cleaned["unreadable_fields"].tolist() == ["phone; employee_count", "", ""]
+
+
 def test_clean_leads_reports_quality(messy_leads):
     cleaned, quality = clean.clean_leads(messy_leads)
-    assert list(cleaned.columns) == clean.CLEAN_COLUMNS
+    assert list(cleaned.columns) == [*clean.CLEAN_COLUMNS, "unreadable_fields"]
     assert cleaned["source_row"].tolist() == [2, 3, 4, 5, 6, 7, 8]
     email_q = quality.set_index("field").loc["email"]
     assert email_q["unreadable"] == 1  # ann.lee@@globex

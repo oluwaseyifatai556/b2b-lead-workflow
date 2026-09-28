@@ -89,6 +89,37 @@ def test_filling_a_penalised_blank_counts_towards_best_case():
     assert out.loc[0, ["score", "tier", "missing_fields", "needs_enrichment"]].tolist() == [67, "B", "Phone", True]
 
 
+def _phone_config():
+    from leadflow.config import parse_config
+
+    return parse_config({
+        "scoring_rules": [
+            {"name": "Industry", "field": "industry", "in": ["SaaS"], "points": 80},
+            {"name": "No phone number", "field": "phone", "is_missing": True, "points": -20},
+        ],
+        "tiers": [{"name": "A", "min_score": 90}, {"name": "B", "min_score": 0}],
+    })
+
+
+def test_unreadable_phone_is_not_penalised_as_missing():
+    cfg = _phone_config()
+    blank = {"industry": "SaaS", "phone": None, "unreadable_fields": ""}
+    unreadable = {"industry": "SaaS", "phone": None, "unreadable_fields": "phone"}
+    assert score_row(blank, cfg.rules, cfg.max_points) == (75, "+80 Industry (SaaS); -20 No phone number")
+    assert score_row(unreadable, cfg.rules, cfg.max_points) == (100, "+80 Industry (SaaS)")
+
+
+def test_unreadable_phone_is_flagged_for_enrichment():
+    cfg = _phone_config()
+    out = score_leads(pd.DataFrame([
+        {"industry": None, "phone": None, "unreadable_fields": "phone"},
+        {"industry": "SaaS", "phone": None, "unreadable_fields": ""},
+    ]), cfg)
+    assert out["missing_fields"].tolist() == ["Industry; Phone (unreadable)", "Phone"]
+    # Row 0: 0 now, 100 if industry fits -> could move B -> A. Row 1: 75 now, 100 with a phone -> B -> A.
+    assert out["needs_enrichment"].tolist() == [True, True]
+
+
 def test_score_leads_adds_columns(config):
     df = pd.DataFrame([{"industry": "Retail", "employee_count": 5, "contact_title": None, "email_is_free": True}])
     out = score_leads(df, config)

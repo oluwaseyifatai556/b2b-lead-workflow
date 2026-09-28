@@ -7,7 +7,7 @@ from datetime import date
 
 import pandas as pd
 
-from leadflow.clean import is_missing
+from leadflow.clean import is_missing, unreadable_set
 from leadflow.config import IcpConfig, ScoringRule
 from leadflow.reference import FIELD_LABELS
 
@@ -33,10 +33,17 @@ def _describe(value: object) -> str:
 
 
 def score_row(row: dict, rules: list[ScoringRule], max_points: int) -> tuple[int, str]:
-    """Return (score 0-100, human-readable explanation of every rule that fired)."""
+    """Return (score 0-100, human-readable explanation of every rule that fired).
+
+    A field that had a value in the file which couldn't be read is *unknown*, not blank, so rules
+    on it neither reward nor penalise (e.g. a garbled phone doesn't count as "no phone number").
+    """
     raw = 0
     reasons = []
+    unreadable = unreadable_set(row)
     for rule in rules:
+        if rule.condition.field in unreadable:
+            continue
         value = row.get(rule.condition.field)
         if rule.condition.test(value):
             raw += rule.points
@@ -59,10 +66,11 @@ def enrichment_gap(row: dict, rules: list[ScoringRule], max_points: int) -> tupl
     """
     missing: list[str] = []
     best_raw = 0
+    unreadable = unreadable_set(row)
     for rule in rules:
         field = rule.condition.field
         if is_missing(row.get(field)):
-            label = FIELD_LABELS.get(field, field)
+            label = FIELD_LABELS.get(field, field) + (" (unreadable)" if field in unreadable else "")
             if label not in missing:
                 missing.append(label)
             best_raw += max(rule.points, 0)

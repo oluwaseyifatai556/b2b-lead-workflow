@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from leadflow.clean import add_derived_columns, is_missing, is_valid_email
+from leadflow.clean import add_derived_columns, is_missing, is_valid_email, unreadable_set
 
 MERGE_FIELDS = [
     "company_name",
@@ -88,6 +88,12 @@ def merge_group(rows: list[dict]) -> dict:
             if _usable(field, other.get(field)):
                 merged[field] = other[field]
                 break
+    if any("unreadable_fields" in r for r in rows):
+        # Still unreadable only if no copy supplied a usable value.
+        unreadable = set().union(*(unreadable_set(r) for r in rows))
+        merged["unreadable_fields"] = "; ".join(
+            f for f in MERGE_FIELDS if f in unreadable and not _usable(f, merged.get(f))
+        )
     source_rows = sorted(r["source_row"] for r in rows)
     merged["source_row"] = source_rows[0]
     merged["source_rows"] = "; ".join(str(s) for s in source_rows)

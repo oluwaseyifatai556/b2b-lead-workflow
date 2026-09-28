@@ -74,6 +74,23 @@ def test_merge_keeps_most_complete_and_fills_gaps():
     assert row["source_row"] == 2
 
 
+def test_unreadable_flag_cleared_when_a_duplicate_supplies_the_value():
+    out = _dedupe([
+        _person(email="jane@acme.example", country="US", phone="TBD", industry="SaaS"),
+        _person(email="jane@acme.example", country="US", phone="(415) 555-0100"),
+    ])
+    assert out.loc[0, "phone"] == "+14155550100"
+    assert out.loc[0, "unreadable_fields"] == ""
+
+
+def test_unreadable_flag_kept_when_no_duplicate_has_the_value():
+    out = _dedupe([
+        _person(email="jane@acme.example", country="US", phone="TBD", industry="SaaS"),
+        _person(email="jane@acme.example", country="US"),
+    ])
+    assert out.loc[0, "unreadable_fields"] == "phone"
+
+
 def test_valid_email_replaces_invalid_on_merge():
     merged = merge_group([
         {"source_row": 2, "email": "jane@@acme", "industry": "SaaS", "city": "Boston"},
