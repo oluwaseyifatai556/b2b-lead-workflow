@@ -1,0 +1,4 @@
+# Keep Windows line endings for the batch file and Unix ones for the shell script.
+*.bat text eol=crlf
+*.sh  text eol=lf
+*.xlsx binary

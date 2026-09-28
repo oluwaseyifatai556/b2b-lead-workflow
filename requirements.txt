@@ -1,0 +1,8 @@
+# Runtime
+pandas>=2.2,<4
+pyyaml>=6.0,<7
+openpyxl>=3.1,<4
+
+# Development (tests and linting)
+pytest>=8,<10
+ruff>=0.5

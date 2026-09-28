@@ -1,0 +1,98 @@
+# =============================================================================
+# Ideal Customer Profile (ICP) settings
+#
+# This file decides which leads are rejected, how the rest are scored, and
+# which tier (A / B / C) they land in. Edit it in any text editor (Notepad is
+# fine), save, and run the workflow again. No code changes needed.
+#
+# Tips
+#   - Keep the indentation exactly as shown (spaces, not tabs).
+#   - Text matching ignores upper/lower case.
+#   - Put text in quotes if it contains a colon or starts with a symbol.
+#
+# Fields you can test:
+#   company_name, domain, contact_first_name, contact_last_name, full_name,
+#   contact_title, email, email_valid, email_is_free, phone, industry,
+#   employee_count, annual_revenue, country, state_region, city,
+#   lead_source, created_date
+#
+# Tests (use exactly one per rule):
+#   equals: <value>            exact match (use true/false for email_valid, email_is_free)
+#   in: [a, b, c]              matches any value in the list
+#   not_in: [a, b, c]          matches anything NOT in the list
+#   contains_any: [a, b]       the text contains any of these words (e.g. job titles)
+#   between: [low, high]       a number in this range, inclusive (employee_count, annual_revenue)
+#   at_least: <number>         a number at or above this
+#   at_most: <number>          a number at or below this
+#   is_missing: true           the field is blank (or "false" = it is filled in)
+# =============================================================================
+
+client_name: "Brightloop (fictional B2B SaaS) - mid-market US & UK"
+
+# Leads matching ANY of these go to rejected_leads.csv with the reason shown.
+disqualifiers:
+  - field: email_valid
+    equals: false
+    reason: "Email is missing or not a valid address"
+  - field: company_name
+    is_missing: true
+    reason: "Company name is missing"
+
+# Points added (or taken away) when a lead matches. The final score is the
+# points earned divided by the most a lead could earn, shown out of 100.
+scoring_rules:
+  - name: Target industry
+    field: industry
+    in: [SaaS, Software, Fintech, Cybersecurity, HR Tech, MarTech, E-commerce]
+    points: 25
+
+  - name: Mid-market company size
+    field: employee_count
+    between: [50, 1000]
+    points: 20
+
+  - name: Senior decision-maker
+    field: contact_title
+    contains_any: [VP, Vice President, Head of, Director, Chief, CEO, CMO, CRO, CTO, COO, Founder, Co-Founder, Owner]
+    points: 20
+
+  - name: Target country
+    field: country
+    in: [United States, United Kingdom]
+    points: 15
+
+  - name: Company email address
+    field: email_is_free
+    equals: false
+    points: 10
+
+  - name: Revenue in target range
+    field: annual_revenue
+    between: [10000000, 250000000]
+    points: 10
+
+  - name: Junior role
+    field: contact_title
+    contains_any: [Intern, Assistant, Coordinator, Student]
+    points: -15
+
+  - name: No phone number
+    field: phone
+    is_missing: true
+    points: -5
+
+# Tiers by score (0 to 100). The lowest tier must start at 0.
+# color is the Excel cell color as a hex code (optional).
+tiers:
+  - name: A
+    min_score: 80
+    color: "#C6EFCE"
+    description: "Strong fit: contact first"
+  - name: B
+    min_score: 55
+    color: "#FFEB9C"
+    description: "Good fit: worth a sequence"
+  - name: C
+    min_score: 0
+    color: "#E7E6E6"
+    description: "Weak fit: nurture or skip"
