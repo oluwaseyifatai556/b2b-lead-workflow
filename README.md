@@ -30,8 +30,8 @@ From the example run (500 messy rows in):
 | Rows in the original file | 500 |
 | Duplicate rows merged away | 60 |
 | Rejected (missing or invalid email) | 11 |
-| **Ranked and ready to use** | **429**: 103 A, 161 B, 165 C |
-| …of which could move up a tier if blank fields were filled | 114 |
+| **Ranked and ready to use** | **429**: 103 A, 182 B, 144 C |
+| …of which could move up a tier if blank fields were filled | 93 |
 
 And each lead comes with the reason behind its score, for example:
 
