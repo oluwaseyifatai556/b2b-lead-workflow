@@ -47,8 +47,9 @@ So when a client asks "why is this lead at the top?", you have the answer.
 
 ### One-time setup
 
-1. Install **Python 3** from <https://www.python.org/downloads/>.
-   During installation, **tick the box "Add python.exe to PATH"**.
+1. Install **Python 3** from <https://www.python.org/downloads/> with the default options.
+   (You don't need to tick "Add python.exe to PATH": `run.bat` finds Python through the
+   `py` launcher that the installer includes.)
 2. Download this project (on GitHub: green **Code** button → **Download ZIP**) and unzip it
    somewhere easy, like your Documents folder.
 
@@ -217,6 +218,9 @@ filter that's usually fine. If it matters for a client, split the list by countr
 **Does running it twice give the same result?**
 Yes. The same file with the same settings always produces the same ranking.
 
+**Typing `python` says "Python was not found"?**
+You don't need to type `python`: double-click `run.bat`. In a terminal, use `py -3` or, after the first run, `.\.venv\Scripts\python.exe` instead of `python`.
+
 **Something went wrong.**
 The window shows a message starting with `Problem:` explaining what to fix: a missing column,
 a typo in `icp.yaml`, or the Excel file being open. Fix it and run again.
@@ -241,8 +245,10 @@ py -3 -m venv .venv
 .\.venv\Scripts\python -m ruff check .
 .\.venv\Scripts\python scripts\generate_sample_data.py      # rebuild the synthetic sample (seeded)
 ```
-`run.bat` wraps the run command and bootstraps `.venv` on first use. Set `LEADFLOW_UNATTENDED=1`
-to skip opening Excel and pausing (e.g. for Task Scheduler). `--date YYYY-MM-DD` pins the report date.
+None of these need `python` on PATH. `run.bat [leads.csv] [output folder]` wraps the run command
+and bootstraps `.venv` on first use: it tries `py -3`, then `python`, and checks that each actually
+runs (so the Microsoft Store stub is skipped). Set `LEADFLOW_UNATTENDED=1` to skip opening Excel
+and pausing (e.g. for Task Scheduler). `--date YYYY-MM-DD` pins the report date.
 
 ### Layout
 ```

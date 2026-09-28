@@ -63,18 +63,21 @@ list plus a short summary report.
 ## Running (Windows-first)
 - On this machine `python` is not on PATH; use the project venv: `.\.venv\Scripts\python.exe`
   (created with `py -3.12 -m venv .venv`).
-- `run.bat` (double-click, or drag a CSV onto it) bootstraps `.venv` on first use (marker file
-  `.venv\.installed`), then runs
-  `python -m leadflow run --input <csv> --config icp.yaml --out output` and opens the xlsx.
-  `LEADFLOW_UNATTENDED=1` skips opening Excel and `pause` (use this when testing it).
-  Keep `run.bat` CRLF (`.gitattributes` enforces it). `run.sh` is a secondary convenience.
+- Never write docs or scripts that assume bare `python`. Use `.\.venv\Scripts\python.exe`, or
+  `py -3` for bootstrapping.
+- `run.bat [csv] [out]` (double-click, or drag a CSV onto it) bootstraps `.venv` on first use
+  (marker `.venv\.installed`) by *running* `py -3`, then `python` (never trust `where python`:
+  it finds the Microsoft Store stub), then runs the venv's `-m leadflow run ...` and opens the xlsx.
+  `LEADFLOW_UNATTENDED=1` skips opening Excel and `pause`. `tests/test_run_bat.py` runs it with
+  a stripped PATH. Keep `run.bat` CRLF (`.gitattributes` enforces it). `run.sh` is secondary.
 - Tests: `.\.venv\Scripts\python.exe -m pytest`  ·  Lint: `.\.venv\Scripts\python.exe -m ruff check .`
   (tool config in `pyproject.toml`; dependencies stay in `requirements.txt`). `ruff format` is
   intentionally not enforced.
-- Regenerate the example: `python -m leadflow run --input data/raw/sample_leads.csv --out examples`,
+- Regenerate the example: `.\.venv\Scripts\python.exe -m leadflow run --input data\raw\sample_leads.csv --out examples`,
   then delete the two CSVs from `examples/` (only `ranked_leads.xlsx` + `summary.md` are committed).
 - PowerShell 5.1 gotcha: don't round-trip text files through `Get-Content`/`Set-Content` (it
-  re-encodes UTF-8 as ANSI). Use the Edit/Write tools, or Python, for file edits.
+  re-encodes UTF-8 as ANSI). Use the Edit/Write tools, or Python, for file edits. Commit
+  messages containing double quotes get mangled when passed with `-m`; use `git commit -F <file>`.
 
 ## Layout
 - `leadflow/` — `config.py` (load/validate yaml + `Condition` rule engine), `clean.py` (pure

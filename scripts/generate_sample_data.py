@@ -1,4 +1,4 @@
-"""Generate a synthetic, deliberately messy B2B lead CSV.
+r"""Generate a synthetic, deliberately messy B2B lead CSV.
 
 Everything here is invented: company names are random word combinations on the reserved
 `.example` domain. Phone numbers have realistic lengths for their country and, where a
@@ -10,7 +10,7 @@ providers with made-up names.
 About 8% of phone numbers are deliberately made unreadable (truncated or junk text). That
 noise uses its own random stream, so changing it never reshuffles the rest of the data.
 
-Usage: python scripts/generate_sample_data.py [--rows 500] [--seed 42] [--out data/raw/sample_leads.csv]
+Usage (Windows): .venv\Scripts\python.exe scripts\generate_sample_data.py [--rows 500] [--seed 42] [--out ...]
 """
 
 from __future__ import annotations
