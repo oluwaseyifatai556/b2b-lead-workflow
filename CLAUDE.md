@@ -78,6 +78,9 @@ list plus a short summary report.
   `dedupe.py`, `score.py`, `report.py` (markdown + Excel), `pipeline.py` (orchestration),
   `__main__.py` (argparse CLI).
 - `scripts/generate_sample_data.py` — seeded synthetic messy CSV → `data/raw/sample_leads.csv`.
+  Phones have valid lengths per country; ~8% are garbled by a *separate* `noise` RNG. When
+  editing, keep the main `rng` draw sequence unchanged (same number and kind of draws) unless
+  you intend to reshuffle the whole sample. `tests/test_generate.py` guards phone realism.
 - `tests/` — pytest; small hand-built fixtures in `conftest.py`, not the 500-row sample.
 
 ## Code style

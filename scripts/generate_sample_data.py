@@ -1,8 +1,14 @@
 """Generate a synthetic, deliberately messy B2B lead CSV.
 
 Everything here is invented: company names are random word combinations on the reserved
-`.example` domain, and phone numbers use ranges reserved for fiction (US 555-01xx, UK Ofcom
-drama numbers). Personal emails use common free-mail providers with made-up names.
+`.example` domain. Phone numbers have realistic lengths for their country and, where a
+regulator publishes a range for fiction, use it (US/Canada 555-01xx, UK Ofcom drama numbers,
+Australia (02) 5550 xxxx, France 01 99 00 xx xx). Germany and India have no such range, so
+their numbers are random digits of a valid length. Personal emails use common free-mail
+providers with made-up names.
+
+About 8% of phone numbers are deliberately made unreadable (truncated or junk text). That
+noise uses its own random stream, so changing it never reshuffles the rest of the data.
 
 Usage: python scripts/generate_sample_data.py [--rows 500] [--seed 42] [--out data/raw/sample_leads.csv]
 """
@@ -95,7 +101,6 @@ PLACES = {
     "India": [("", "Karnataka", ["Bengaluru"]), ("", "Maharashtra", ["Mumbai", "Pune"])],
     "France": [("", "Île-de-France", ["Paris"]), ("", "Auvergne-Rhône-Alpes", ["Lyon"])],
 }
-DIAL = {"Canada": "1", "Germany": "49", "Australia": "61", "India": "91", "France": "33"}
 LEAD_SOURCES = {"LinkedIn": 25, "Website Form": 20, "Webinar": 12, "Referral": 10,
                 "Trade Show": 10, "Cold Outreach": 13, "Content Download": 10}
 LEAD_SOURCE_MESS = {"LinkedIn": ["linkedin", "Linked In", "LINKEDIN"], "Website Form": ["web form", "website"],
@@ -215,9 +220,38 @@ def render_phone(rng: random.Random, c: dict) -> str:
             f"020 7946 0{n:03d}", f"+44 20 7946 0{n:03d}", f"+44 (0)20 7946 0{n:03d}",
             f"07700 900{n:03d}", f"+447700900{n:03d}",
         ])
-    code = DIAL[country]
-    body = f"{rng.randint(100, 999)} {rng.randint(1000, 9999)}"
-    return rng.choice([f"+{code} {body}", f"00{code} {body}", f"+{code}-{body.replace(' ', '-')}"])
+    # Exactly two randint draws and one 3-way choice, as in earlier versions, so the random
+    # stream (and therefore every other field in the sample) stays the same.
+    a, b = rng.randint(100, 999), rng.randint(1000, 9999)
+    if country == "Canada":
+        area, line = ("416", "604", "514")[a % 3], f"01{n:02d}"
+        formats = [f"+1 {area} 555 {line}", f"({area}) 555-{line}", f"{area}.555.{line}"]
+    elif country == "Germany":
+        formats = [f"+49 30 {a} {b}", f"030 {a}{b}", f"+49 (0)30 {a}{b}"]
+    elif country == "France":
+        pair1, pair2 = f"{b // 100:02d}", f"{b % 100:02d}"
+        formats = [f"+33 1 99 00 {pair1} {pair2}", f"01 99 00 {pair1} {pair2}", f"+33 (0)1 99 00 {pair1}{pair2}"]
+    elif country == "Australia":
+        formats = [f"+61 2 5550 {b}", f"(02) 5550 {b}", f"02 5550 {b}"]
+    else:  # India: 10-digit mobile
+        num = f"9{a}{b}{n:02d}"
+        formats = [f"+91 {num[:5]} {num[5:]}", f"0{num[:5]} {num[5:]}", f"+91-{num[:5]}-{num[5:]}"]
+    return rng.choice(formats)
+
+
+PHONE_NOISE_RATE = 0.08
+
+
+def garble_phone(noise: random.Random, phone: str) -> str:
+    """Make a phone number unreadable the way real lists do: cut off, or junk text."""
+    r = noise.random()
+    if r < 0.6:
+        chars, dropped = list(phone), 0
+        for i in range(len(chars) - 1, -1, -1):  # drop the last three digits
+            if chars[i].isdigit() and dropped < 3:
+                chars[i], dropped = "", dropped + 1
+        return "".join(chars).rstrip(" -.x")
+    return noise.choice(["TBD", "123", "see notes", "ask reception"])
 
 
 def render_employees(rng: random.Random, n: int) -> str:
@@ -259,8 +293,8 @@ def render_revenue(rng: random.Random, amount: float, country: str) -> str:
     return rng.choice(["", "", "n/a", "undisclosed"])
 
 
-def render(rng: random.Random, c: dict, variant: str = "normal") -> dict:
-    """Turn a clean contact into a messy CSV row."""
+def render(rng: random.Random, noise: random.Random, c: dict, variant: str = "normal") -> dict:
+    """Turn a clean contact into a messy CSV row. `noise` drives only the unreadable phones."""
     country_text = rng.choice(COUNTRIES[c["country"]][1])
     region = c["region_abbrev"] if c["region_abbrev"] and rng.random() < 0.6 else c["region"]
     industry = c["industry"]
@@ -282,7 +316,8 @@ def render(rng: random.Random, c: dict, variant: str = "normal") -> dict:
         "contact_last_name": mess_case(rng, c["last"]),
         "contact_title": mess_case(rng, c["title"]) if rng.random() > 0.05 else "",
         "email": email,
-        "phone": render_phone(rng, c) if rng.random() > 0.1 else rng.choice(["", "", "", "n/a", "123"]),
+        # Five choices (as before) keeps the random stream aligned; junk values now come from garble_phone.
+        "phone": render_phone(rng, c) if rng.random() > 0.1 else rng.choice(["", "", "", "n/a", "N/A"]),
         "industry": mess_case(rng, industry) if rng.random() > 0.06 else "",
         "employee_count": render_employees(rng, c["employees"]),
         "annual_revenue": render_revenue(rng, c["revenue"], c["country"]),
@@ -303,6 +338,9 @@ def render(rng: random.Random, c: dict, variant: str = "normal") -> dict:
         local = f"{c['first']}.{c['last']}".lower().replace("'", "")
         row["email"] = f"{local}{rng.randint(1, 99)}@{rng.choice(FREE_MAIL)}"
         row["website"] = render_website(rng, c["domain"])
+
+    if row["phone"] not in ("", "n/a", "N/A") and noise.random() < PHONE_NOISE_RATE:
+        row["phone"] = garble_phone(noise, row["phone"])
     return row
 
 
@@ -321,12 +359,13 @@ def break_row(rng: random.Random, row: dict) -> dict:
 
 def generate(rows: int = 500, seed: int = 42) -> list[dict]:
     rng = random.Random(seed)
+    noise = random.Random(f"{seed}-phone-noise")
     n_dupes = round(rows * 0.12)
     n_unique = rows - n_dupes
     companies = make_companies(rng, max(20, n_unique // 2))
     contacts = make_contacts(rng, companies, n_unique)
 
-    out = [render(rng, c) for c in contacts]
+    out = [render(rng, noise, c) for c in contacts]
     for i in rng.sample(range(len(out)), k=round(n_unique * 0.05)):
         out[i] = break_row(rng, out[i])
 
@@ -336,9 +375,9 @@ def generate(rows: int = 500, seed: int = 42) -> list[dict]:
         if r < 0.25:
             out.append(dict(out[contacts.index(c)]))  # exact copy
         elif r < 0.7:
-            out.append(render(rng, c, "partial"))
+            out.append(render(rng, noise, c, "partial"))
         else:
-            out.append(render(rng, c, "other_email"))
+            out.append(render(rng, noise, c, "other_email"))
     rng.shuffle(out)
     return out
 
