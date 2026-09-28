@@ -29,8 +29,9 @@ From the example run (500 messy rows in):
 |---|---:|
 | Rows in the original file | 500 |
 | Duplicate rows merged away | 60 |
-| Rejected (bad email or no company name) | 20 |
-| **Ranked and ready to use** | **420**: 101 A, 178 B, 141 C |
+| Rejected (missing or invalid email) | 11 |
+| **Ranked and ready to use** | **429**: 103 A, 161 B, 165 C |
+| …of which could move up a tier if blank fields were filled | 114 |
 
 And each lead comes with the reason behind its score, for example:
 
@@ -77,14 +78,32 @@ Everything is saved in the **`output`** folder:
 ⚠️ Each run **replaces** the files in `output`. Copy anything you want to keep somewhere else first.
 If Excel has `ranked_leads.xlsx` open, close it before running again.
 
+### Tiers and ranking
+
+With the included `icp.yaml`, tiers are:
+
+| Tier | Score | Meaning |
+|---|---|---|
+| **A** | 80-100 | Strong fit: contact first |
+| **B** | 55-79 | Good fit: worth a sequence |
+| **C** | 0-54 | Weak fit: nurture or skip |
+
+You can change these cut-offs in `icp.yaml`. The Summary always prints the cut-offs that were
+actually used.
+
+Leads are sorted by score (highest first). Ties are broken by profile completeness (more complete first), then date added (newest first), then original row order.
+
 ### Reading the Ranked tab
 
 | Column | Meaning |
 |---|---|
-| **Tier** | **A** = strong fit, contact first · **B** = good fit, worth a sequence · **C** = weak fit, nurture or skip |
+| **Tier** | A, B or C, from the score (see above). |
 | **Score** | 0–100. How well the lead matches the client's ideal customer. |
 | **Why this score** | Every rule the lead matched and the points it earned or lost. |
-| **Profile complete %** | How many of the useful fields are filled in. Among leads with the same score, fuller profiles rank higher. |
+| **Needs enrichment?** | "Yes" means some fields the scoring uses are blank, and filling them could move the lead **up a tier**. A blank earns no points, so a low score here may mean "unknown", not "poor fit". Research these before writing them off. |
+| **Missing (scored) fields** | Which of those fields are blank, e.g. `Industry; Employees`. |
+| **Company name source** | `original` = from your file. `same domain` = copied from another lead with the same website or email domain. `inferred` = worked out from the website or email domain (e.g. `orbitline-health.com` → "Orbitline Health"), so double-check it. |
+| **Profile complete %** | How many of the useful fields are filled in. |
 | **Original row(s)** | Which row(s) of your original spreadsheet this lead came from. More than one means duplicates were merged. |
 | **Personal email?** | "Yes" if the email is a Gmail/Outlook/Yahoo-style personal address. |
 
@@ -176,11 +195,20 @@ Different people at the same company are never merged.
 No. Everything runs on your computer, and nothing connects to the internet except the one-time setup.
 
 **Why was a phone number left blank?**
-It couldn't be read (for example `"123"` or `"n/a"`). The Summary shows how many values in each
-column were blank, tidied, or unreadable.
+Either it couldn't be read (for example `"123"` or `"n/a"`), or it had the wrong number of
+digits to be a complete number for its country. For example, `+1-525-8369` is missing three
+digits, since US and Canadian numbers need 10 after the `+1`. The Summary shows how many values in
+each column were blank, tidied, or unreadable.
 
 **Why do some phone numbers have no `+` country code?**
-The lead had no country, so the tool kept the digits as they were rather than guess.
+The lead had no country and the number didn't include one, so the tool kept the digits as they
+were rather than guess. It still checks the length is plausible for a phone number (8 to 15 digits).
+
+**Why does a lead have a company name I didn't give it?**
+If the company name was blank but the lead has a website or a company email, the name is copied
+from another lead on the same domain, or worked out from the domain. The **Company name source**
+column shows which. A lead is only rejected for a missing company if it has no company name,
+no website and only a personal email.
 
 **Revenue is in different currencies. Does that matter?**
 Currency symbols are ignored, so `£3M` and `$3M` both count as 3,000,000. For a rough size
@@ -220,10 +248,11 @@ to skip opening Excel and pausing (e.g. for Task Scheduler). `--date YYYY-MM-DD`
 ```
 leadflow/
   __main__.py    CLI (argparse); maps InputError/ConfigError/PermissionError to plain messages
-  pipeline.py    read CSV → clean → dedupe → disqualify → score → rank → write
+  pipeline.py    read CSV → clean → dedupe → fill company → disqualify → score → rank → write
   clean.py       pure per-field normalizers + clean_leads() + data-quality counts
-  reference.py   data-hygiene lookup tables (country aliases, free-mail domains, …)
+  reference.py   data-hygiene lookup tables (country aliases, free-mail domains, phone lengths, labels…)
   dedupe.py      union-find on match keys; merge = most complete row + gap fill
+  enrich.py      fill missing company names from same-domain leads or the domain itself
   config.py      icp.yaml loader/validator and the Condition rule engine
   score.py       disqualifiers, scoring with explanations, tiers, ranking
   report.py      summary.md and the formatted Excel workbook
@@ -240,11 +269,16 @@ examples/                         committed output of one run on the sample data
 3. **Dedupe**: keys are `email` (valid only) and `domain + lower(full name)`. Union-find makes
    matches transitive. The primary row is the most complete (tie → earliest row); blanks are filled from
    the others. An invalid email counts as blank, so a valid one from a duplicate wins.
-4. **Disqualify**: any matching disqualifier sends the lead to `rejected_leads.csv`; all hit
+4. **Fill company**: a blank `company_name` takes the most common name among leads on the same
+   domain (`company_name_source = same domain`), else a name derived from the domain (`inferred`).
+   It stays blank only when there's no domain.
+5. **Disqualify**: any matching disqualifier sends the lead to `rejected_leads.csv`; all hit
    reasons are listed.
-5. **Score**: sum of matching rule points ÷ sum of positive points × 100, clamped to 0–100;
-   tier by descending `min_score`.
-6. **Rank**: score ↓, profile completeness ↓, date added ↓, original row ↑ (stable sort, so output is deterministic).
+6. **Score**: sum of matching rule points ÷ sum of positive points × 100, clamped to 0–100;
+   tier by descending `min_score`. `missing_fields` lists blank fields that rules test. A best-case
+   score assumes each blank turns out favourably (positive rules earned, penalties on blanks lifted).
+   `needs_enrichment` is true when that best case lands in a higher tier.
+7. **Rank**: score ↓, profile completeness ↓, date added ↓, original row ↑ (stable sort, so output is deterministic).
 
 ### Rule engine (`icp.yaml`)
 Tests: `equals`, `in`, `not_in`, `contains_any` (whole-word, case-insensitive), `between`,
@@ -255,6 +289,8 @@ front, and every error names the rule and the fix.
 ### Parsing choices worth knowing
 - Employee ranges use the midpoint (`50-200` → 125). `500+` → 500.
 - Phone numbers are output as `+<country code><digits>` when the country is known, and raw digits otherwise.
+  The national part must have the right length for its dialling code (`PHONE_NATIONAL_DIGITS`
+  in `reference.py`, e.g. 10 for +1, 9–10 for +44). Anything else is counted as unreadable and left blank.
 - Dates accept ISO, `MM/DD/YYYY` (US order), `12 Mar 2026`, `Mar 12, 2026`, `YYYY/MM/DD`, ISO with time.
   `DD/MM/YYYY` is intentionally **not** guessed, to avoid silently swapping day and month.
 

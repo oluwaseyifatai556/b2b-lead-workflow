@@ -49,6 +49,46 @@ def test_rank_orders_by_score_then_completeness_then_recency():
     assert ranked["rank"].tolist() == [1, 2, 3, 4]
 
 
+def _enrich_view(config, **row):
+    base = {"industry": None, "employee_count": None, "contact_title": None, "email_is_free": False}
+    out = score_leads(pd.DataFrame([{**base, **row}]), config)
+    return out.loc[0, ["score", "tier", "missing_fields", "needs_enrichment"]].tolist()
+
+
+def test_blank_field_that_could_lift_the_tier_needs_enrichment(config):
+    # 30 size + 20 senior + 10 work email = 60 (B). Industry is blank; +40 would make it A.
+    assert _enrich_view(config, employee_count=120, contact_title="VP Sales") == [60, "B", "Industry", True]
+
+
+def test_blank_field_that_cannot_change_the_tier_is_listed_but_not_flagged(config):
+    # 40 + 30 + 10 = 80 (already A). Title is blank, but filling it can't lift the tier.
+    assert _enrich_view(config, industry="SaaS", employee_count=120) == [80, "A", "Job title", False]
+
+
+def test_complete_lead_has_no_missing_fields(config):
+    view = _enrich_view(config, industry="Retail", employee_count=5, contact_title="Owner", email_is_free=True)
+    assert view == [0, "C", "", False]  # a genuine poor fit, not missing data
+
+
+def test_several_missing_fields_listed_in_rule_order(config):
+    assert _enrich_view(config)[2:] == ["Industry; Employees; Job title", True]
+
+
+def test_filling_a_penalised_blank_counts_towards_best_case():
+    from leadflow.config import parse_config
+
+    cfg = parse_config({
+        "scoring_rules": [
+            {"name": "Industry", "field": "industry", "in": ["SaaS"], "points": 60},
+            {"name": "No phone", "field": "phone", "is_missing": True, "points": -20},
+        ],
+        "tiers": [{"name": "A", "min_score": 80}, {"name": "B", "min_score": 0}],
+    })
+    out = score_leads(pd.DataFrame([{"industry": "SaaS", "phone": None}]), cfg)
+    # (60 - 20) / 60 = 67 -> B. With a phone the penalty goes away: 60 / 60 = 100 -> A.
+    assert out.loc[0, ["score", "tier", "missing_fields", "needs_enrichment"]].tolist() == [67, "B", "Phone", True]
+
+
 def test_score_leads_adds_columns(config):
     df = pd.DataFrame([{"industry": "Retail", "employee_count": 5, "contact_title": None, "email_is_free": True}])
     out = score_leads(df, config)

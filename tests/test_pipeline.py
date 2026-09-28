@@ -16,9 +16,10 @@ RUN_DATE = date(2026, 1, 31)
 def test_process_end_to_end(messy_leads, config):
     result = process(messy_leads, config, run_date=RUN_DATE)
 
-    assert result.stats == {"rows_in": 7, "duplicates_removed": 2, "unique_contacts": 5, "rejected": 2, "ranked": 3}
+    assert result.stats == {"rows_in": 7, "duplicates_removed": 2, "unique_contacts": 5, "rejected": 1, "ranked": 4}
     assert list(result.ranked.columns) == RANKED_COLUMNS
     assert list(result.rejected.columns) == REJECTED_COLUMNS
+    assert {"missing_fields", "needs_enrichment"} <= set(RANKED_COLUMNS)
 
     top = result.ranked.iloc[0]
     assert top["full_name"] == "Jane Doe"
@@ -28,8 +29,34 @@ def test_process_end_to_end(messy_leads, config):
     assert top["lead_source"] == "LinkedIn"
     assert top["email"] == "jane.doe@acme.example"
 
-    assert result.ranked["full_name"].tolist() == ["Jane Doe", "Raj Patel", "Al Ng"]
-    assert result.rejected["reject_reason"].tolist() == ["Invalid email", "No company"]
+    assert result.ranked["full_name"].tolist() == ["Jane Doe", "Raj Patel", "Bo Chen", "Al Ng"]
+    # Bo had no company name but a company email, so the name is inferred instead of rejecting.
+    bo = result.ranked.set_index("full_name").loc["Bo Chen"]
+    assert (bo["company_name"], bo["company_name_source"]) == ("Initech", "inferred")
+    assert result.rejected["reject_reason"].tolist() == ["Invalid email"]
+
+
+def test_summary_prints_tier_cutoffs_and_tie_breaks(messy_leads, config):
+    from leadflow.report import build_summary_markdown
+
+    md = build_summary_markdown(process(messy_leads, config, run_date=RUN_DATE))
+    # Fixture tiers: A >= 80, B >= 50, C >= 0
+    assert "| Tier | Score range | What it means | Leads | Share |" in md
+    assert "| A | 80-100 |" in md and "| B | 50-79 |" in md and "| C | 0-49 |" in md
+    assert (
+        "Leads are sorted by score (highest first). Ties are broken by profile completeness "
+        "(more complete first), then date added (newest first), then original row order."
+    ) in md
+
+
+def test_readme_matches_shipped_tier_cutoffs():
+    from leadflow.config import load_config
+    from leadflow.report import TIE_BREAK_TEXT, tier_ranges
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for name, low, high in tier_ranges(load_config(ROOT / "icp.yaml")):
+        assert f"| **{name}** | {low}-{high} |" in readme, f"README tier table is out of date for tier {name}"
+    assert TIE_BREAK_TEXT in readme
 
 
 def test_run_writes_all_outputs(tmp_path, messy_leads):
@@ -46,6 +73,8 @@ def test_run_writes_all_outputs(tmp_path, messy_leads):
     assert "Generated:** 2026-01-31" in summary
     assert "| Rows in the original file | 7 |" in summary
     assert "Email is missing or not a valid address" in summary
+    assert "## Leads with missing data" in summary
+    assert "could move up a tier" in summary
 
     wb = load_workbook(out / "ranked_leads.xlsx")
     assert wb.sheetnames == ["Ranked", "Rejected", "Summary"]
@@ -104,6 +133,23 @@ def test_cli_success_and_friendly_errors(tmp_path, messy_leads, capsys):
     code = main(["run", "--input", str(tmp_path / "nope.csv"), "--config", str(ROOT / "icp.yaml")])
     assert code == 1
     assert "Problem: Can't find the lead file" in capsys.readouterr().err
+
+
+def test_locked_excel_file_leaves_other_outputs_untouched(tmp_path, messy_leads, config, monkeypatch):
+    import leadflow.pipeline as pipeline
+
+    out = tmp_path / "o"
+    out.mkdir()
+    (out / "summary.md").write_text("previous run", encoding="utf-8")
+
+    def locked(result, path):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(pipeline, "write_excel", locked)
+    with pytest.raises(PermissionError):
+        pipeline.write_outputs(process(messy_leads, config, run_date=RUN_DATE), out)
+    assert (out / "summary.md").read_text(encoding="utf-8") == "previous run"
+    assert not (out / "ranked_leads.csv").exists()
 
 
 def test_ranked_csv_round_trips(tmp_path, messy_leads):

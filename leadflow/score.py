@@ -9,6 +9,7 @@ import pandas as pd
 
 from leadflow.clean import is_missing
 from leadflow.config import IcpConfig, ScoringRule
+from leadflow.reference import FIELD_LABELS
 
 
 def split_disqualified(df: pd.DataFrame, config: IcpConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -42,16 +43,46 @@ def score_row(row: dict, rules: list[ScoringRule], max_points: int) -> tuple[int
             show = not is_missing(value) and not isinstance(value, bool)
             detail = f" ({_describe(value)})" if show else ""
             reasons.append(f"{rule.points:+d} {rule.name}{detail}")
-    score = max(0, min(100, round(100 * raw / max_points)))
-    return score, "; ".join(reasons) if reasons else "No ICP rules matched"
+    return _normalize(raw, max_points), "; ".join(reasons) if reasons else "No ICP rules matched"
+
+
+def _normalize(raw: int, max_points: int) -> int:
+    return max(0, min(100, round(100 * raw / max_points)))
+
+
+def enrichment_gap(row: dict, rules: list[ScoringRule], max_points: int) -> tuple[list[str], int]:
+    """Return (labels of scored fields that are blank, best-case score if they were filled).
+
+    A blank field earns nothing, so a low score can mean "unknown" rather than "poor fit". The
+    best case assumes each blank field turns out favourably: positive rules on it are earned and
+    penalties on it (e.g. "no phone number") go away.
+    """
+    missing: list[str] = []
+    best_raw = 0
+    for rule in rules:
+        field = rule.condition.field
+        if is_missing(row.get(field)):
+            label = FIELD_LABELS.get(field, field)
+            if label not in missing:
+                missing.append(label)
+            best_raw += max(rule.points, 0)
+        elif rule.condition.test(row.get(field)):
+            best_raw += rule.points
+    return missing, _normalize(best_raw, max_points)
 
 
 def score_leads(df: pd.DataFrame, config: IcpConfig) -> pd.DataFrame:
     df = df.copy()
-    results = [score_row(r, config.rules, config.max_points) for r in df.to_dict("records")]
+    records = df.to_dict("records")
+    results = [score_row(r, config.rules, config.max_points) for r in records]
+    gaps = [enrichment_gap(r, config.rules, config.max_points) for r in records]
     df["score"] = [s for s, _ in results]
     df["score_reasons"] = [why for _, why in results]
     df["tier"] = [assign_tier(s, config) for s in df["score"]]
+    df["missing_fields"] = ["; ".join(missing) for missing, _ in gaps]
+    df["needs_enrichment"] = [
+        assign_tier(best, config) != tier for (_, best), tier in zip(gaps, df["tier"], strict=True)
+    ]
     return df
 
 
@@ -63,7 +94,10 @@ def assign_tier(score: int, config: IcpConfig) -> str:
 
 
 def rank_leads(df: pd.DataFrame) -> pd.DataFrame:
-    """Best first: score, then completeness, then most recent, then original file order."""
+    """Best first: score, then completeness, then most recent, then original file order.
+
+    If you change this order, update report.TIE_BREAK_TEXT (the README quotes it).
+    """
     df = df.copy()
     df["_recency"] = [-(d.toordinal()) if isinstance(d, date) else 0 for d in df["created_date"]]
     df = df.sort_values(

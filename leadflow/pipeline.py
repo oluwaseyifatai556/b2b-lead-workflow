@@ -11,6 +11,7 @@ import pandas as pd
 from leadflow.clean import InputError, clean_leads
 from leadflow.config import IcpConfig, load_config
 from leadflow.dedupe import dedupe
+from leadflow.enrich import fill_company_names
 from leadflow.report import build_summary_markdown, write_excel
 from leadflow.score import rank_leads, score_leads, split_disqualified
 
@@ -18,6 +19,7 @@ PROFILE_COLUMNS = [
     "full_name",
     "contact_title",
     "company_name",
+    "company_name_source",
     "domain",
     "email",
     "phone",
@@ -36,7 +38,7 @@ PROFILE_COLUMNS = [
     "contact_first_name",
     "contact_last_name",
 ]
-RANKED_COLUMNS = ["rank", "tier", "score", "score_reasons", *PROFILE_COLUMNS]
+RANKED_COLUMNS = ["rank", "tier", "score", "score_reasons", "needs_enrichment", "missing_fields", *PROFILE_COLUMNS]
 REJECTED_COLUMNS = ["reject_reason", *PROFILE_COLUMNS]
 
 
@@ -74,7 +76,7 @@ def process(
     raw: pd.DataFrame, config: IcpConfig, input_name: str = "leads.csv", run_date: date | None = None
 ) -> RunResult:
     cleaned, quality = clean_leads(raw)
-    unique = dedupe(cleaned)
+    unique = fill_company_names(dedupe(cleaned))
     kept, rejected = split_disqualified(unique, config)
     ranked = rank_leads(score_leads(kept, config))
     rejected = rejected.sort_values("source_row", kind="mergesort")
@@ -105,11 +107,13 @@ def write_outputs(result: RunResult, out_dir: str | Path) -> dict[str, Path]:
         "summary_md": out / "summary.md",
         "excel": out / "ranked_leads.xlsx",
     }
+    # Excel first: it's the file most likely to be locked (open in Excel), and failing before
+    # anything is written avoids leaving a folder where only some files were updated.
+    write_excel(result, paths["excel"])
     # utf-8-sig so Excel opens the CSVs with accents intact.
     result.ranked.to_csv(paths["ranked_csv"], index=False, encoding="utf-8-sig")
     result.rejected.to_csv(paths["rejected_csv"], index=False, encoding="utf-8-sig")
     paths["summary_md"].write_text(build_summary_markdown(result), encoding="utf-8")
-    write_excel(result, paths["excel"])
     return paths
 
 

@@ -21,6 +21,8 @@ from leadflow.reference import (
     HEADER_ALIASES,
     INDUSTRY_CANONICAL,
     LEAD_SOURCE_CANONICAL,
+    PHONE_ANY_DIGITS,
+    PHONE_NATIONAL_DIGITS,
 )
 
 INPUT_COLUMNS = [
@@ -174,36 +176,50 @@ def clean_country(value: object) -> str | None:
     return COUNTRY_ALIASES.get(text.lower(), smart_title(text))
 
 
+def _national_ok(code: str, national: str) -> bool:
+    low, high = PHONE_NATIONAL_DIGITS[code]
+    return low <= len(national) <= high
+
+
+def _any_length_ok(digits: str) -> bool:
+    return PHONE_ANY_DIGITS[0] <= len(digits) <= PHONE_ANY_DIGITS[1]
+
+
 def clean_phone(value: object, country: str | None = None) -> str | None:
-    """Return a phone number as +<country code><number>, or None if it can't be read."""
+    """Return a phone number as +<country code><number>, or None if it can't be read or is
+    the wrong length to be a complete number for its country."""
     text = _text(value)
     if not text:
         return None
     text = re.split(r"(?i)\s*(?:x|ext\.?|extension)\s*\d+$", text)[0]
     text = text.replace("(0)", "")
     digits = re.sub(r"\D", "", text)
-    if text.startswith("00"):
-        digits = digits[2:]
-        text = "+" + digits
-    if len(digits) < 7 or len(digits) > 15:
+    if not digits:
         return None
-    if text.startswith("+"):
-        return "+" + digits
-    code = COUNTRY_DIAL_CODES.get(country or "")
-    if code == "1":
-        if len(digits) == 10:
-            return "+1" + digits
-        if len(digits) == 11 and digits.startswith("1"):
-            return "+" + digits
-        return None
-    if code:
-        if digits.startswith(code) and len(digits) > 10:
-            return "+" + digits
-        if digits.startswith("0"):
-            return "+" + code + digits[1:]
-        return "+" + code + digits
-    # Country unknown: keep the digits rather than lose the number.
-    return digits
+
+    if text.startswith(("+", "00")):
+        if text.startswith("00"):
+            digits = digits[2:]
+        # The number carries its own country code; judge it by that, not the lead's country.
+        for code in sorted(PHONE_NATIONAL_DIGITS, key=len, reverse=True):
+            if digits.startswith(code):
+                national = digits[len(code):]
+                if national.startswith("0"):  # e.g. "+44 020 ..."
+                    national = national[1:]
+                return f"+{code}{national}" if _national_ok(code, national) else None
+        return "+" + digits if _any_length_ok(digits) else None
+
+    code = COUNTRY_DIAL_CODES.get(country) if isinstance(country, str) else None
+    if code is None:
+        # Country unknown: keep the digits rather than lose the number, if the length is plausible.
+        return digits if _any_length_ok(digits) else None
+    if digits.startswith(code) and _national_ok(code, digits[len(code):]):
+        national = digits[len(code):]  # written with the country code but no "+"
+    elif digits.startswith("0"):
+        national = digits[1:]  # national trunk prefix
+    else:
+        national = digits
+    return f"+{code}{national}" if _national_ok(code, national) else None
 
 
 _MULTIPLIERS = {"k": 1e3, "thousand": 1e3, "m": 1e6, "mm": 1e6, "mil": 1e6, "million": 1e6,

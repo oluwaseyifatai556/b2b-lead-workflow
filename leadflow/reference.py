@@ -50,6 +50,29 @@ HEADER_ALIASES: dict[str, str] = {
     "date_added": "created_date",
 }
 
+# Plain-English names for lead fields, used in reports and in the missing_fields column.
+FIELD_LABELS: dict[str, str] = {
+    "company_name": "Company",
+    "website": "Website",
+    "domain": "Website",
+    "contact_first_name": "First name",
+    "contact_last_name": "Last name",
+    "full_name": "Contact",
+    "contact_title": "Job title",
+    "email": "Email",
+    "email_valid": "Valid email?",
+    "email_is_free": "Personal email?",
+    "phone": "Phone",
+    "industry": "Industry",
+    "employee_count": "Employees",
+    "annual_revenue": "Annual revenue",
+    "country": "Country",
+    "state_region": "State / region",
+    "city": "City",
+    "lead_source": "Lead source",
+    "created_date": "Date added",
+}
+
 COUNTRY_ALIASES: dict[str, str] = {
     "us": "United States",
     "u.s.": "United States",
@@ -99,6 +122,22 @@ COUNTRY_DIAL_CODES: dict[str, str] = {
     "Ireland": "353",
     "Netherlands": "31",
 }
+
+# Allowed length of the national number (digits after the country code, without a leading 0)
+# per dialling code. Numbers outside the range can't be complete and are treated as unreadable.
+# German numbers genuinely vary in length; 8-11 covers normal landlines and mobiles.
+PHONE_NATIONAL_DIGITS: dict[str, tuple[int, int]] = {
+    "1": (10, 10),    # US, Canada
+    "44": (9, 10),    # UK
+    "49": (8, 11),    # Germany
+    "61": (9, 9),     # Australia
+    "91": (10, 10),   # India
+    "33": (9, 9),     # France
+    "353": (7, 9),    # Ireland
+    "31": (9, 9),     # Netherlands
+}
+# E.164 limits, used when the country code isn't one we know.
+PHONE_ANY_DIGITS = (8, 15)
 
 # Free / personal mailbox providers. A lead on one of these is not a company address.
 FREE_EMAIL_DOMAINS: frozenset[str] = frozenset(

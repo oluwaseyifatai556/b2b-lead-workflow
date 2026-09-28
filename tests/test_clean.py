@@ -69,7 +69,11 @@ def test_free_email_detection():
         ("415-555-0100 x12", "United States", "+14155550100"),
         ("020 7946 0000", "United Kingdom", "+442079460000"),
         ("+44 (0)20 7946 0000", "United Kingdom", "+442079460000"),
-        ("0049 301 2345", "Germany", "+493012345"),
+        ("0049 30 1234 5678", "Germany", "+493012345678"),
+        ("+33 1 23 45 67 89", "France", "+33123456789"),
+        ("+61 2 9876 5432", "Australia", "+61298765432"),
+        ("+91 98765 43210", "India", "+919876543210"),
+        ("+1 416 555 0199", "Canada", "+14165550199"),
         ("4155550100", None, "4155550100"),  # unknown country: keep the digits
         ("123", "United States", None),
         ("n/a", "United States", None),
@@ -77,6 +81,38 @@ def test_free_email_detection():
 )
 def test_clean_phone(raw, country, expected):
     assert clean.clean_phone(raw, country) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "country"),
+    [
+        ("+1-525-8369", "Canada"),        # audit example: 7 digits after +1, needs 10
+        ("525-8369", "Canada"),
+        ("+49 694 6703", "Germany"),      # 7 national digits, needs 8-11
+        ("0049 301 2345", "Germany"),
+        ("+33 948 1206", "France"),       # needs 9
+        ("+61 555 1234", "Australia"),    # needs 9
+        ("+91-622-7961", "India"),        # needs 10
+        ("+44 20 7946", "United Kingdom"),  # needs 9-10
+        ("+1 415 555 01000", "United States"),  # too long
+        ("+33 948 1206", None),           # country code in the number is enough to judge it
+    ],
+)
+def test_incomplete_phone_numbers_are_unreadable(raw, country):
+    assert clean.clean_phone(raw, country) is None
+
+
+def test_incomplete_phones_count_as_unreadable_not_standardized():
+    raw = raw_frame([
+        {"company_name": "A", "contact_first_name": "a", "contact_last_name": "b", "email": "a@a.example",
+         "country": "Canada", "phone": "+1-525-8369"},
+        {"company_name": "B", "contact_first_name": "c", "contact_last_name": "d", "email": "c@b.example",
+         "country": "Canada", "phone": "(416) 555-0199"},
+    ])
+    cleaned, quality = clean.clean_leads(raw)
+    assert pd.isna(cleaned.loc[0, "phone"])
+    phone_q = quality.set_index("field").loc["phone"]
+    assert (phone_q["unreadable"], phone_q["standardized"]) == (1, 1)
 
 
 @pytest.mark.parametrize(

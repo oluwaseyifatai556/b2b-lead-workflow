@@ -32,6 +32,19 @@ list plus a short summary report.
   (A/B/C thresholds in config). Every lead gets a human-readable `score_reasons` column.
 - Disqualifiers (in `icp.yaml`, e.g. invalid email, missing company name) route leads to
   `rejected_leads.csv` with a `reject_reason`. Never silently drop rows.
+- Missing company name is filled before disqualifying (`enrich.py`): most common name on the
+  same domain (`company_name_source = same domain`), else derived from the domain (`inferred`).
+  Reject for missing company only when there's no company AND no domain.
+- Phones: the national number must match the length range for its dial code
+  (`PHONE_NATIONAL_DIGITS` in `reference.py`); otherwise None, counted as *unreadable* not
+  *standardized*. Unknown country + no code: keep digits if 8–15 long.
+- `missing_fields` = blank fields tested by `icp.yaml` rules (friendly labels, rule order).
+  `needs_enrichment` = the best-case score (blanks assumed favourable, penalties on blanks lifted)
+  lands in a higher tier. Blank data must never be presented as poor fit.
+- Tier cut-offs and tie-break order are printed in `summary.md`. `report.TIE_BREAK_TEXT` must
+  describe `score.rank_leads`, and the README's tier table must match the shipped `icp.yaml`
+  (a test enforces both).
+- `write_outputs` writes the xlsx first, so a locked workbook fails before anything else changes.
 - Deterministic: same input + config ⇒ identical output (stable sorts, seeded generation).
 - Example ICP: B2B SaaS client selling to mid-market US and UK companies.
 

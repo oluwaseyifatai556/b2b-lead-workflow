@@ -30,13 +30,16 @@
 client_name: "Brightloop (fictional B2B SaaS) - mid-market US & UK"
 
 # Leads matching ANY of these go to rejected_leads.csv with the reason shown.
+# (Before these checks run, a missing company name is filled in from another lead on the
+# same website/email domain, or worked out from the domain itself. So "company_name is
+# missing" only catches leads with no company, no website and no company email.)
 disqualifiers:
   - field: email_valid
     equals: false
     reason: "Email is missing or not a valid address"
   - field: company_name
     is_missing: true
-    reason: "Company name is missing"
+    reason: "No company name, website or company email"
 
 # Points added (or taken away) when a lead matches. The final score is the
 # points earned divided by the most a lead could earn, shown out of 100.

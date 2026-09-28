@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -13,40 +14,31 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from leadflow.clean import is_missing
+from leadflow.reference import FIELD_LABELS
 
 if TYPE_CHECKING:
+    from leadflow.config import IcpConfig
     from leadflow.pipeline import RunResult
 
 # Friendly Excel headers for the snake_case CSV columns.
 HEADERS = {
+    **FIELD_LABELS,
     "rank": "Rank",
     "tier": "Tier",
     "score": "Score",
     "score_reasons": "Why this score",
+    "missing_fields": "Missing (scored) fields",
+    "needs_enrichment": "Needs enrichment?",
     "reject_reason": "Why rejected",
-    "full_name": "Contact",
-    "contact_first_name": "First name",
-    "contact_last_name": "Last name",
-    "contact_title": "Job title",
-    "company_name": "Company",
-    "domain": "Website",
-    "website": "Website",
-    "email": "Email",
-    "email_is_free": "Personal email?",
-    "phone": "Phone",
-    "industry": "Industry",
-    "employee_count": "Employees",
-    "annual_revenue": "Annual revenue",
-    "country": "Country",
-    "state_region": "State / region",
-    "city": "City",
-    "lead_source": "Lead source",
-    "created_date": "Date added",
+    "company_name_source": "Company name source",
     "profile_completeness": "Profile complete %",
     "source_rows": "Original row(s)",
     "duplicates_merged": "Duplicates merged",
 }
-COLUMN_WIDTHS = {"score_reasons": 60, "reject_reason": 45, "email": 32, "contact_title": 28, "company_name": 28}
+COLUMN_WIDTHS = {
+    "score_reasons": 60, "reject_reason": 45, "email": 32, "contact_title": 28, "company_name": 28,
+    "missing_fields": 30,
+}
 HEADER_FILL = PatternFill("solid", fgColor="1F3864")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
 SECTION_FONT = Font(bold=True, size=12, color="1F3864")
@@ -59,9 +51,46 @@ def reason_counts(rejected: pd.DataFrame) -> list[tuple[str, int]]:
     return sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
+# Must describe score.rank_leads exactly. The README quotes it and a test checks they match.
+TIE_BREAK_TEXT = (
+    "Leads are sorted by score (highest first). Ties are broken by profile completeness "
+    "(more complete first), then date added (newest first), then original row order."
+)
+
+
+def tier_ranges(config: IcpConfig) -> list[tuple[str, int, int]]:
+    """(tier, lowest score, highest score) for each tier, best tier first. Scores are whole numbers."""
+    ranges, high = [], 100
+    for tier in config.tiers:  # sorted highest threshold first
+        low = math.ceil(tier.min_score)
+        ranges.append((tier.name, low, high))
+        high = low - 1
+    return ranges
+
+
 def tier_counts(result: RunResult) -> list[tuple[str, str, int]]:
     counts = result.ranked["tier"].value_counts()
     return [(t.name, t.description, int(counts.get(t.name, 0))) for t in result.config.tiers]
+
+
+def missing_data_stats(result: RunResult) -> dict:
+    ranked = result.ranked
+    field_counts: Counter[str] = Counter()
+    for fields in ranked["missing_fields"]:
+        field_counts.update(f for f in str(fields).split("; ") if f)
+    flagged = ranked[ranked["needs_enrichment"]]
+    return {
+        "with_gaps": int((ranked["missing_fields"] != "").sum()),
+        "needs_enrichment": len(flagged),
+        "by_tier": [(t.name, int((flagged["tier"] == t.name).sum())) for t in result.config.tiers],
+        "fields": sorted(field_counts.items(), key=lambda kv: (-kv[1], kv[0])),
+    }
+
+
+MISSING_DATA_NOTE = (
+    "A blank field earns no points, so a low score can mean *we don't know* rather than *poor fit*. "
+    "`needs_enrichment` is Yes when filling the lead's blank fields could move it up a tier."
+)
 
 
 def _pct(part: int, whole: int) -> str:
@@ -93,11 +122,35 @@ def build_summary_markdown(result: RunResult, top_n: int = 10) -> str:
         "",
         "## Tier breakdown",
         "",
-        "| Tier | What it means | Leads | Share |",
-        "|---|---|---:|---:|",
+        "| Tier | Score range | What it means | Leads | Share |",
+        "|---|---|---|---:|---:|",
     ]
+    ranges = {name: f"{low}-{high}" for name, low, high in tier_ranges(result.config)}
     for name, description, count in tier_counts(result):
-        lines.append(f"| {name} | {_md_cell(description)} | {count} | {_pct(count, s['ranked'])} |")
+        lines.append(
+            f"| {name} | {ranges[name]} | {_md_cell(description)} | {count} | {_pct(count, s['ranked'])} |"
+        )
+    lines += ["", f"Cut-offs come from icp.yaml. {TIE_BREAK_TEXT}"]
+
+    m = missing_data_stats(result)
+    lines += [
+        "",
+        "## Leads with missing data",
+        "",
+        MISSING_DATA_NOTE,
+        "",
+        f"- **{m['with_gaps']}** of {s['ranked']} ranked leads are blank in at least one scored field "
+        "(see the `missing_fields` column).",
+        f"- **{m['needs_enrichment']}** could move up a tier if those gaps were filled: worth researching "
+        "before writing them off.",
+        "",
+        "| Tier now | Could move up |",
+        "|---|---:|",
+    ]
+    lines += [f"| {name} | {count} |" for name, count in m["by_tier"]]
+    if m["fields"]:
+        lines += ["", "| Most often missing | Leads |", "|---|---:|"]
+        lines += [f"| {field} | {count} |" for field, count in m["fields"]]
 
     lines += ["", f"## Top {top_n} leads", ""]
     top = result.ranked.head(top_n)
@@ -201,6 +254,7 @@ def _write_summary_sheet(ws: Worksheet, result: RunResult) -> None:
     ws.column_dimensions["B"].width = 44
     ws.column_dimensions["C"].width = 14
     ws.column_dimensions["D"].width = 14
+    ws.column_dimensions["E"].width = 14
 
     def section(title: str) -> None:
         if ws.max_row > 1:
@@ -234,12 +288,27 @@ def _write_summary_sheet(ws: Worksheet, result: RunResult) -> None:
     ws.cell(row=ws.max_row, column=2).font = Font(bold=True)
 
     section("Tier breakdown")
-    header("Tier", "What it means", "Leads", "Share")
+    header("Tier", "What it means", "Leads", "Share", "Score range")
     colors = {t.name: t.color for t in result.config.tiers}
+    ranges = {name: f"{low}-{high}" for name, low, high in tier_ranges(result.config)}
     for name, description, count in tier_counts(result):
-        ws.append([name, description, count, _pct(count, s["ranked"])])
+        ws.append([name, description, count, _pct(count, s["ranked"]), ranges[name]])
         ws.cell(row=ws.max_row, column=1).fill = PatternFill("solid", fgColor=colors[name])
         ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
+    ws.append([TIE_BREAK_TEXT])
+
+    section("Leads with missing data")
+    ws.append([MISSING_DATA_NOTE.replace("*", "").replace("`", "")])
+    m = missing_data_stats(result)
+    header("", "Leads")
+    ws.append(["Blank in at least one scored field", m["with_gaps"]])
+    ws.append(["Could move up a tier if filled (needs enrichment)", m["needs_enrichment"]])
+    header("Tier now", "Could move up")
+    for name, count in m["by_tier"]:
+        ws.append([name, count])
+    header("Most often missing", "Leads")
+    for field, count in m["fields"]:
+        ws.append([field, count])
 
     section("Why leads were rejected")
     header("Reason", "Leads")
