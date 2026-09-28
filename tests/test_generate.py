@@ -41,6 +41,18 @@ def test_roughly_5_to_10_percent_of_phones_are_unreadable(seed):
     assert 0.05 <= share <= 0.10, f"{share:.1%} of phones unreadable"
 
 
+def test_committed_sample_matches_the_generator():
+    import csv
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "data" / "raw" / "sample_leads.csv"
+    with path.open(encoding="utf-8", newline="") as f:
+        committed = list(csv.DictReader(f))
+    assert committed == generate(500, seed=42), (
+        "data/raw/sample_leads.csv is out of date: run scripts/generate_sample_data.py"
+    )
+
+
 def test_other_messiness_is_kept():
     rows = generate(500, seed=42)
     emails = [r["email"] for r in rows]
